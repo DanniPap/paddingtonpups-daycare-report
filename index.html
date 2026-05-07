@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paddington Pups — Team Weather Report</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useEffect } = React;
+ 
+const _storage = {
+  async list(prefix) {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix));
+    return { keys };
+  },
+  async get(key) {
+    const value = localStorage.getItem(key);
+    return value !== null ? { value } : null;
+  },
+  async set(key, value) {
+    localStorage.setItem(key, String(value));
+    return { key, value };
+  }
+};
+ 
+ 
+const WHEEL_CATS = [
+  { key: "customerSatisfaction", label: "Customer Satisfaction", desc: "Complaints & happy customers", emoji: "⭐" },
+  { key: "staffMood", label: "Team Mood", desc: "Happy & inclusive team", emoji: "😊" },
+  { key: "communication", label: "Communication", desc: "Open dialogue — customers & all staff", emoji: "💬" },
+  { key: "teamCohesiveness", label: "Team Cohesiveness", desc: "Working well together & assisting others", emoji: "🤝" },
+  { key: "checklistEfficiency", label: "Checklist Efficiency", desc: "Checklists completed acceptably & on time", emoji: "✅" },
+  { key: "staffUtilisation", label: "Team Utilisation", desc: "People consistently have tasks to do", emoji: "⚡" },
+  { key: "productivity", label: "Productivity", desc: "Completing tasks & working diligently", emoji: "🚀" },
+  { key: "cleanliness", label: "Cleanliness", desc: "Quick clean up, smell & tidiness", emoji: "✨" },
+  { key: "dogBehaviour", label: "Dog Behaviour", desc: "Dog energy levels, mood & incidents", emoji: "🐕" },
+  { key: "barking", label: "Barking", desc: "Noise levels", emoji: "🔊" },
+];
+ 
+const SCORE_LABELS = { 2:"2", 3:"Bad", 4:"Poor", 5:"Okay", 6:"Good", 7:"Great", 8:"Excellent", 9:"Outstanding", 10:"Perfection" };
+const MOODS = ["😄","😊","😐","😕","😤"];
+const MOOD_LABELS = ["Great","Good","Okay","Down","Stressed"];
+const BUSYNESS_LABELS = { 1:"Very Quiet", 2:"Quiet", 3:"Slow", 4:"Gentle", 5:"Normal", 6:"Busy", 7:"Very Busy", 8:"Hectic", 9:"Almost Chaotic", 10:"Chaotic Madness" };
+const EMPTY_OPS = { daycareDogs:"", daycareStaff:"", groomingDogs:"", groomers:"", boardingDogs:"", playcareDogs:"", walkIns:"", newClientPacks:"" };
+const OPS_FIELDS = [
+  ["daycareDogs","Daycare Dogs","🐕"],
+  ["daycareStaff","Daycare Team on Site","👤"],
+  ["groomingDogs","Grooming Dogs","✂️"],
+  ["groomers","Groomers on Site","💈"],
+  ["boardingDogs","Boarding Dogs","🛏️"],
+  ["playcareDogs","Playcare Dogs","🎾"],
+  ["walkIns","Walk-ins","🚶"],
+  ["newClientPacks","New Client Packs","📦"],
+];
+ 
+function buildCSV(reports) {
+  const sorted = [...reports].sort((a,b) => a.date.localeCompare(b.date));
+  const headers = ["Date","Total Hours","Team Names","Team Moods","Team Hours","Level Of Busy Score","Level Of Busy Label",...WHEEL_CATS.map(c=>c.label),...OPS_FIELDS.map(([,label])=>label),"Notes"];
+  const esc = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
+  const rows = sorted.map(r => [
+    r.date, r.totalHours,
+    r.staff.map(s=>s.name).join(", "),
+    r.staff.map(s=>s.mood).join(", "),
+    r.staff.map(s=>s.hours).join(", "),
+    r.busyness.score, r.busyness.label,
+    ...WHEEL_CATS.map(c=>r.wheel[c.key]??""),
+    ...OPS_FIELDS.map(([key])=>r.operations[key]??0),
+    r.notes??""
+  ].map(esc));
+  return [headers.map(esc), ...rows].map(r=>r.join(",")).join("\n");
+}
+ 
+function CSVModal({ csv, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(csv).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+  return (
+    <div style={{position:"fixed",inset:0,backgroundColor:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{backgroundColor:"white",borderRadius:16,padding:20,width:"100%",maxWidth:560,maxHeight:"80vh",display:"flex",flexDirection:"column",gap:12,fontFamily:"'Nunito','Segoe UI',sans-serif"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontWeight:900,fontSize:17}}>📊 Export CSV Data</div>
+          <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:32,height:32,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>
+        <p style={{fontSize:13,color:"#64748b",margin:0}}>Copy everything below, then paste into Excel or Google Sheets (File → Import, or just paste into cell A1).</p>
+        <textarea readOnly value={csv} onClick={e=>e.target.select()}
+          style={{flex:1,minHeight:220,fontFamily:"monospace",fontSize:11,border:"1.5px solid #e2e8f0",borderRadius:10,padding:10,resize:"none",color:"#0f172a",backgroundColor:"#f8fafc"}}/>
+        <button onClick={copy} style={{padding:"13px",borderRadius:12,border:"none",backgroundColor:copied?"#22c55e":"#0f766e",color:"white",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit",transition:"background 0.2s"}}>
+          {copied?"✅ Copied!":"📋 Copy All"}
+        </button>
+      </div>
+    </div>
+  );
+}
+ 
+// ── Radar Chart ──────────────────────────────────────────────────
+function RadarChart({ scores }) {
+  const cx=130, cy=130, maxR=90, n=WHEEL_CATS.length;
+  const angle = i => (i/n)*2*Math.PI - Math.PI/2;
+  const sR = s => Math.max(0,((s-2)/8)*maxR);
+  const gPts = lv => WHEEL_CATS.map((_,i)=>{ const a=angle(i),r=sR(lv); return `${cx+r*Math.cos(a)},${cy+r*Math.sin(a)}`; }).join(" ");
+  const dPts = WHEEL_CATS.map((cat,i)=>{ const a=angle(i),r=sR(scores[cat.key]||5); return {x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)}; });
+  const avg = (Object.values(scores).reduce((a,b)=>a+b,0)/Object.values(scores).length).toFixed(1);
+  return (
+    <svg viewBox="0 0 260 260" style={{width:"100%",maxWidth:280,display:"block",margin:"0 auto"}}>
+      {[2,4,6,8,10].map(l=><polygon key={l} points={gPts(l)} fill="none" stroke={l===10?"rgba(20,184,166,0.35)":"rgba(20,184,166,0.12)"} strokeWidth={l===10?1.5:1}/>)}
+      {WHEEL_CATS.map((_,i)=>{const a=angle(i);return <line key={i} x1={cx} y1={cy} x2={cx+maxR*Math.cos(a)} y2={cy+maxR*Math.sin(a)} stroke="rgba(20,184,166,0.15)" strokeWidth="1"/>;})}
+      <polygon points={dPts.map(p=>`${p.x},${p.y}`).join(" ")} fill="rgba(20,184,166,0.18)" stroke="#14b8a6" strokeWidth="2.5" strokeLinejoin="round"/>
+      {dPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="4" fill="#14b8a6"/>)}
+      {WHEEL_CATS.map((cat,i)=>{const a=angle(i),lr=maxR+17;return <text key={i} x={cx+lr*Math.cos(a)} y={cy+lr*Math.sin(a)} textAnchor="middle" dominantBaseline="middle" fontSize="14">{cat.emoji}</text>;})}
+      <circle cx={cx} cy={cy} r={18} fill="#0f766e"/>
+      <text x={cx} y={cy-3} textAnchor="middle" dominantBaseline="middle" fontSize="13" fontWeight="900" fill="white">{avg}</text>
+      <text x={cx} y={cy+10} textAnchor="middle" dominantBaseline="middle" fontSize="7" fill="rgba(255,255,255,0.75)">AVG</text>
+    </svg>
+  );
+}
+ 
+// ── Score Picker ──────────────────────────────────────────────────
+function ScorePicker({ value, onChange }) {
+  const col = s => s<=3?{border:"#fca5a5",active:"#ef4444"}:s<=5?{border:"#fcd34d",active:"#f59e0b"}:s<=7?{border:"#86efac",active:"#22c55e"}:{border:"#5eead4",active:"#14b8a6"};
+  return (
+    <div style={{display:"flex",gap:4,justifyContent:"space-between"}}>
+      {[2,3,4,5,6,7,8,9,10].map(s=>{
+        const c=col(s),on=s===value;
+        return <button key={s} onClick={()=>onChange(s)} style={{flex:1,height:40,borderRadius:8,border:"2px solid",borderColor:on?c.active:c.border,backgroundColor:on?c.active:"white",color:on?"white":"#475569",fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.12s",fontFamily:"inherit",padding:0}}>{s}</button>;
+      })}
+    </div>
+  );
+}
+ 
+ 
+// ── Generate Printable Report HTML ───────────────────────────────
+function generateReportHTML(r) {
+  const CATS = [
+    {key:"customerSatisfaction",label:"Customer Satisfaction",emoji:"⭐"},
+    {key:"staffMood",label:"Team Mood",emoji:"😊"},
+    {key:"communication",label:"Communication",emoji:"💬"},
+    {key:"teamCohesiveness",label:"Team Cohesiveness",emoji:"🤝"},
+    {key:"checklistEfficiency",label:"Checklist Efficiency",emoji:"✅"},
+    {key:"staffUtilisation",label:"Team Utilisation",emoji:"⚡"},
+    {key:"productivity",label:"Productivity",emoji:"🚀"},
+    {key:"cleanliness",label:"Cleanliness",emoji:"✨"},
+    {key:"dogBehaviour",label:"Dog Behaviour",emoji:"🐕"},
+    {key:"barking",label:"Barking",emoji:"🔊"},
+  ];
+  const SLABELS = {2:"2",3:"Bad",4:"Poor",5:"Okay",6:"Good",7:"Great",8:"Excellent",9:"Outstanding",10:"Perfection"};
+  const wAvg = (Object.values(r.wheel).reduce((a,b)=>a+b,0)/10).toFixed(1);
+  const dateStr = new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+ 
+  // Radar SVG
+  const cx=160,cy=160,maxR=120,n=10;
+  const angle = i=>(i/n)*2*Math.PI-Math.PI/2;
+  const sR = s=>Math.max(0,((s-2)/8)*maxR);
+  const gPts = lv=>CATS.map((_,i)=>{const a=angle(i),r2=sR(lv);return `${cx+r2*Math.cos(a)},${cy+r2*Math.sin(a)}`;}).join(" ");
+  const dPts = CATS.map((cat,i)=>{const a=angle(i),r2=sR(r.wheel[cat.key]||5);return {x:cx+r2*Math.cos(a),y:cy+r2*Math.sin(a)};});
+  const spokeLines = CATS.map((_,i)=>{const a=angle(i);return `<line x1="${cx}" y1="${cy}" x2="${cx+maxR*Math.cos(a)}" y2="${cy+maxR*Math.sin(a)}" stroke="rgba(20,184,166,0.2)" stroke-width="1"/>`;}).join("");
+  const gridPolys = [2,4,6,8,10].map(l=>`<polygon points="${gPts(l)}" fill="none" stroke="${l===10?"rgba(20,184,166,0.4)":"rgba(20,184,166,0.15)"}" stroke-width="${l===10?1.5:1}"/>`).join("");
+  const dataPath = `<polygon points="${dPts.map(p=>`${p.x},${p.y}`).join(" ")}" fill="rgba(20,184,166,0.2)" stroke="#14b8a6" stroke-width="2.5" stroke-linejoin="round"/>`;
+  const dots = dPts.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="5" fill="#14b8a6"/>`).join("");
+  const emojiLabels = CATS.map((cat,i)=>{const a=angle(i),lr=maxR+22;return `<text x="${cx+lr*Math.cos(a)}" y="${cy+lr*Math.sin(a)}" text-anchor="middle" dominant-baseline="middle" font-size="16">${cat.emoji}</text>`;}).join("");
+  const scoreLabels = CATS.map((cat,i)=>{const a=angle(i),lr=maxR+38;return `<text x="${cx+lr*Math.cos(a)}" y="${cy+lr*Math.sin(a)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#64748b" font-weight="bold">${r.wheel[cat.key]}</text>`;}).join("");
+  const radarSVG = `<svg viewBox="0 0 320 320" width="280" height="280" xmlns="http://www.w3.org/2000/svg">${gridPolys}${spokeLines}${dataPath}${dots}${emojiLabels}${scoreLabels}<circle cx="${cx}" cy="${cy}" r="24" fill="#0f766e"/><text x="${cx}" y="${cy-4}" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="900" fill="white">${wAvg}</text><text x="${cx}" y="${cy+11}" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(255,255,255,0.8)">AVG</text></svg>`;
+ 
+  const scoreColor = s=>s<=3?"#ef4444":s<=5?"#f59e0b":s<=7?"#22c55e":"#14b8a6";
+  const scoreBg = s=>s<=3?"#fef2f2":s<=5?"#fffbeb":s<=7?"#f0fdf4":"#f0fdfa";
+ 
+  const wheelRows = CATS.map(cat=>`
+    <tr>
+      <td style="padding:7px 10px;font-weight:700;font-size:13px;">${cat.emoji} ${cat.label}</td>
+      <td style="padding:7px 10px;text-align:center;">
+        <span style="display:inline-block;background:${scoreBg(r.wheel[cat.key])};color:${scoreColor(r.wheel[cat.key])};border-radius:8px;padding:3px 12px;font-weight:900;font-size:15px;">${r.wheel[cat.key]}</span>
+      </td>
+      <td style="padding:7px 10px;font-size:12px;color:#64748b;font-weight:600;">${SLABELS[r.wheel[cat.key]]||""}</td>
+    </tr>`).join("");
+ 
+  const staffRows = r.staff.map(s=>`
+    <tr>
+      <td style="padding:6px 10px;font-weight:700;font-size:13px;">${s.name}</td>
+      <td style="padding:6px 10px;font-size:13px;">${s.mood}</td>
+      <td style="padding:6px 10px;font-size:13px;text-align:center;font-weight:700;">${s.hours}h</td>
+    </tr>`).join("");
+ 
+  const opsItems = [
+    ["Dogs in Daycare","🐕",r.operations.daycareDogs],
+    ["Daycare Staff","👤",r.operations.daycareStaff],
+    ["Grooming Dogs","✂️",r.operations.groomingDogs],
+    ["Groomers","💈",r.operations.groomers],
+    ["Boarding Dogs","🛏️",r.operations.boardingDogs],
+    ["Playcare Dogs","🎾",r.operations.playcareDogs],
+    ["Walk-ins","🚶",r.operations.walkIns],
+    ["New Client Packs","📦",r.operations.newClientPacks],
+  ].map(([label,emoji,val])=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f1f5f9;">
+      <span style="font-size:13px;font-weight:600;">${emoji} ${label}</span>
+      <span style="font-size:15px;font-weight:900;color:#0f766e;">${val??0}</span>
+    </div>`).join("");
+ 
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Team Weather Report — ${dateStr}</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Nunito','Segoe UI',sans-serif;background:#fff;color:#0f172a;padding:0}
+  .page{max-width:760px;margin:0 auto;padding:32px 28px}
+  .header{background:#0f766e;color:white;border-radius:14px;padding:20px 24px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center}
+  .header-left h1{font-size:22px;font-weight:900;letter-spacing:0.5px}
+  .header-left p{font-size:12px;opacity:0.75;font-weight:700;letter-spacing:1px;margin-top:2px}
+  .header-right{text-align:right}
+  .header-right .date{font-size:18px;font-weight:900}
+  .header-right .sub{font-size:11px;opacity:0.75;margin-top:2px}
+  .stat-row{display:flex;gap:12px;margin-bottom:24px}
+  .stat{flex:1;border-radius:12px;padding:14px;text-align:center}
+  .stat .val{font-size:28px;font-weight:900;line-height:1}
+  .stat .lbl{font-size:10px;font-weight:700;margin-top:4px;opacity:0.7;letter-spacing:0.5px}
+  .section{background:#f8fafc;border-radius:14px;padding:18px 20px;margin-bottom:18px}
+  .section h2{font-size:14px;font-weight:900;color:#64748b;letter-spacing:0.5px;margin-bottom:14px;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse}
+  tr:nth-child(even){background:rgba(0,0,0,0.02)}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .radar-wrap{display:flex;justify-content:center;margin-bottom:8px}
+  .notes-box{background:#fffbeb;border-left:4px solid #f59e0b;border-radius:0 10px 10px 0;padding:12px 16px;font-size:14px;font-style:italic;color:#92400e;line-height:1.5}
+  .footer{text-align:center;margin-top:24px;font-size:11px;color:#94a3b8;font-weight:600}
+  @media print{
+    @page{margin:12mm 14mm;size:A4}
+    body{padding:0}
+    .page{padding:0;max-width:100%}
+    .no-print{display:none!important}
+  }
+  .print-btn{display:none}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="header-left">
+      <h1>🐾 PADDINGTON PUPS</h1>
+      <p>TEAM WEATHER REPORT</p>
+    </div>
+    <div class="header-right">
+      <div class="date">${dateStr}</div>
+      <div class="sub">Daily Operations Report</div>
+    </div>
+  </div>
+ 
+  <div class="stat-row">
+    <div class="stat" style="background:#f0fdf4;"><div class="val" style="color:#16a34a">${wAvg}</div><div class="lbl" style="color:#16a34a">WHEEL AVG</div></div>
+    <div class="stat" style="background:#f0fdfa;"><div class="val" style="color:#0f766e">${r.busyness.score}</div><div class="lbl" style="color:#0f766e">LEVEL OF BUSY — ${r.busyness.label}</div></div>
+    <div class="stat" style="background:#fdf4ff;"><div class="val" style="color:#9333ea">${r.totalHours}</div><div class="lbl" style="color:#9333ea">TOTAL HOURS</div></div>
+  </div>
+ 
+  <div class="two-col">
+    <div>
+      <div class="section">
+        <h2>👥 Team</h2>
+        <table>
+          <thead><tr style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase">
+            <th style="padding:4px 10px;text-align:left">Name</th>
+            <th style="padding:4px 10px;text-align:left">Mood</th>
+            <th style="padding:4px 10px;text-align:center">Hours</th>
+          </tr></thead>
+          <tbody>${staffRows}</tbody>
+        </table>
+      </div>
+ 
+      <div class="section">
+        <h2>🐶 Operations</h2>
+        ${opsItems}
+      </div>
+    </div>
+ 
+    <div>
+      <div class="section">
+        <h2>🎡 Team Wheel</h2>
+        <div class="radar-wrap">${radarSVG}</div>
+      </div>
+    </div>
+  </div>
+ 
+  <div class="section">
+    <h2>📊 Wheel Scores</h2>
+    <table>
+      <tbody>${wheelRows}</tbody>
+    </table>
+  </div>
+ 
+  ${r.notes?`<div class="section"><h2>📝 Notes</h2><div class="notes-box">${r.notes}</div></div>`:""}
+ 
+  <div class="footer">Paddington Pups · Generated ${new Date(r.submittedAt||Date.now()).toLocaleString("en-AU")}</div>
+</div>
+</body>
+</html>`;
+}
+ 
+// ── Report Detail Screen (single screen, photographable) ─────────
+function ReportDetailScreen({ report: r, onBack }) {
+  const CATS = [
+    {key:"customerSatisfaction",label:"Cust. Satisfaction",emoji:"⭐"},
+    {key:"staffMood",label:"Team Mood",emoji:"😊"},
+    {key:"communication",label:"Communication",emoji:"💬"},
+    {key:"teamCohesiveness",label:"Team Cohesiveness",emoji:"🤝"},
+    {key:"checklistEfficiency",label:"Checklist Efficiency",emoji:"✅"},
+    {key:"staffUtilisation",label:"Team Utilisation",emoji:"⚡"},
+    {key:"productivity",label:"Productivity",emoji:"🚀"},
+    {key:"cleanliness",label:"Cleanliness",emoji:"✨"},
+    {key:"dogBehaviour",label:"Dog Behaviour",emoji:"🐕"},
+    {key:"barking",label:"Barking",emoji:"🔊"},
+  ];
+  const SLABELS = {2:"2",3:"Bad",4:"Poor",5:"Okay",6:"Good",7:"Great",8:"Excellent",9:"Outstanding",10:"Perfection"};
+  const wAvg = (Object.values(r.wheel).reduce((a,b)=>a+b,0)/10).toFixed(1);
+  const dateStr = new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+  const scoreColor = s=>s<=3?"#ef4444":s<=5?"#f59e0b":s<=7?"#22c55e":"#14b8a6";
+  const C = {teal:"#0f766e",pink:"#E3A825",muted:"#64748b",border:"#e8edf2"};
+ 
+  // Mini radar
+  const cx=90,cy=90,maxR=68,n=10;
+  const ang = i=>(i/n)*2*Math.PI-Math.PI/2;
+  const sR = s=>Math.max(0,((s-2)/8)*maxR);
+  const gPts = lv=>CATS.map((_,i)=>{const a=ang(i),r2=sR(lv);return `${cx+r2*Math.cos(a)},${cy+r2*Math.sin(a)}`;}).join(" ");
+  const dPts = CATS.map((cat,i)=>{const a=ang(i),r2=sR(r.wheel[cat.key]||5);return {x:cx+r2*Math.cos(a),y:cy+r2*Math.sin(a)};});
+ 
+  return (
+    <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:"white",minHeight:"100vh",color:"#0f172a"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap'); *{box-sizing:border-box}`}</style>
+ 
+      {/* Back bar */}
+      <div style={{backgroundColor:C.teal,padding:"8px 12px",display:"flex",alignItems:"center",gap:8,position:"sticky",top:0,zIndex:10}}>
+        <button onClick={onBack} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:8,padding:"6px 10px",color:"white",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
+        <span style={{color:"white",fontWeight:700,fontSize:11,opacity:0.8}}>Take a screenshot of everything below</span>
+      </div>
+ 
+      {/* ── REPORT CARD ── */}
+      <div style={{padding:"10px 10px 16px"}}>
+ 
+        {/* Header */}
+        <div style={{background:C.teal,color:"white",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:900,fontSize:14,letterSpacing:"0.3px"}}>🐾 PADDINGTON PUPS — TEAM WEATHER REPORT</div>
+          </div>
+          <div style={{fontWeight:900,fontSize:13,whiteSpace:"nowrap",marginLeft:8}}>{dateStr}</div>
+        </div>
+ 
+        {/* Stat pills */}
+        {/* HOURS — hero stat */}
+        <div style={{backgroundColor:"#fdf4ff",borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:900,color:"#9333ea",opacity:0.7,letterSpacing:"0.8px",textTransform:"uppercase"}}>⏱️ Total Team Hours</div>
+            <div style={{fontWeight:900,fontSize:36,color:"#9333ea",lineHeight:1}}>{r.totalHours}h</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            {(()=>{const moodEmoji={"Great":"😄","Good":"😊","Okay":"😐","Down":"😕","Stressed":"😤"};return r.staff.filter(s=>s.name).map((s,i)=>(
+              <div key={i} style={{fontSize:12,fontWeight:700,color:"#9333ea"}}>{s.name} · {s.hours}h {moodEmoji[s.mood]||"😊"}</div>
+            ));})()}
+          </div>
+        </div>
+        {/* Wheel + Busy */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+          {[
+            {val:wAvg,lbl:"WHEEL AVG",bg:"#f0fdf4",col:"#16a34a"},
+            {val:`${r.busyness.score} — ${r.busyness.label}`,lbl:"LEVEL OF BUSY",bg:"#f0fdfa",col:C.teal},
+          ].map((s,i)=>(
+            <div key={i} style={{backgroundColor:s.bg,borderRadius:8,padding:"7px 8px",textAlign:"center"}}>
+              <div style={{fontWeight:900,fontSize:i===1?12:20,color:s.col,lineHeight:1.1}}>{s.val}</div>
+              <div style={{fontSize:9,fontWeight:700,color:s.col,opacity:0.65,marginTop:2}}>{s.lbl}</div>
+            </div>
+          ))}
+        </div>
+ 
+        {/* Main two-column body */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+ 
+          {/* LEFT column */}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+ 
+            {/* Operations — full height */}
+            <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px"}}>
+              <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:8}}>🐶 Operations</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {OPS_FIELDS.map(([key,label,emoji])=>(
+                  <div key={key} style={{backgroundColor:"white",borderRadius:8,padding:"9px 10px",border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontWeight:900,fontSize:32,color:C.teal,lineHeight:1}}>{r.operations[key]??0}</div>
+                      <div style={{fontSize:10,fontWeight:700,color:C.muted,marginTop:3,lineHeight:1.3}}>{label.replace("Dogs in ","").replace(" on Site","")}</div>
+                    </div>
+                    <div style={{fontSize:28,lineHeight:1}}>{emoji}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Notes — sits below ops in left column */}
+            {r.notes&&(
+              <div style={{backgroundColor:"#fffbeb",border:"2px solid #f59e0b",borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontSize:11,fontWeight:900,color:"#92400e",letterSpacing:"0.5px",marginBottom:5}}>📝 NOTES</div>
+                <div style={{fontSize:14,fontWeight:700,fontStyle:"italic",color:"#78350f",lineHeight:1.6}}>"{r.notes}"</div>
+              </div>
+            )}
+          </div>
+ 
+          {/* RIGHT column */}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+ 
+            {/* Mini radar */}
+            <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+              <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:4}}>🎡 Wheel</div>
+              <svg viewBox="0 0 180 180" width="100%" style={{maxWidth:160,display:"block",margin:"0 auto"}}>
+                {[2,5,8,10].map(l=><polygon key={l} points={gPts(l)} fill="none" stroke={l===10?"rgba(20,184,166,0.4)":"rgba(20,184,166,0.12)"} strokeWidth="1"/>)}
+                {CATS.map((_,i)=>{const a=ang(i);return <line key={i} x1={cx} y1={cy} x2={cx+maxR*Math.cos(a)} y2={cy+maxR*Math.sin(a)} stroke="rgba(20,184,166,0.15)" strokeWidth="0.8"/>;} )}
+                <polygon points={dPts.map(p=>`${p.x},${p.y}`).join(" ")} fill="rgba(20,184,166,0.2)" stroke="#14b8a6" strokeWidth="2" strokeLinejoin="round"/>
+                {dPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill="#14b8a6"/>)}
+                {CATS.map((cat,i)=>{const a=ang(i),lr=maxR+13;return <text key={i} x={cx+lr*Math.cos(a)} y={cy+lr*Math.sin(a)} textAnchor="middle" dominantBaseline="middle" fontSize="10">{cat.emoji}</text>;})}
+                <circle cx={cx} cy={cy} r="16" fill="#0f766e"/>
+                <text x={cx} y={cy-2} textAnchor="middle" dominantBaseline="middle" fontSize="11" fontWeight="900" fill="white">{wAvg}</text>
+                <text x={cx} y={cy+9} textAnchor="middle" dominantBaseline="middle" fontSize="6" fill="rgba(255,255,255,0.75)">AVG</text>
+              </svg>
+            </div>
+ 
+            {/* Wheel scores */}
+            <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px",flex:1}}>
+              <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:6}}>📊 Scores</div>
+              {CATS.map(cat=>(
+                <div key={cat.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"2px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:10,fontWeight:600,color:"#475569"}}>{cat.emoji} {cat.label}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                    <span style={{fontSize:9,color:C.muted}}>{SLABELS[r.wheel[cat.key]]}</span>
+                    <span style={{fontWeight:900,fontSize:12,color:scoreColor(r.wheel[cat.key])}}>{r.wheel[cat.key]}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+ 
+        {/* Footer */}
+        <div style={{textAlign:"center",marginTop:8,fontSize:9,color:"#94a3b8",fontWeight:600}}>
+          Paddington Pups · {new Date(r.submittedAt||Date.now()).toLocaleString("en-AU",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+// ── History Screen ────────────────────────────────────────────────
+function HistoryScreen({ reports, onBack, onEdit }) {
+  const C = { teal:"#0f766e", pink:"#E3A825", muted:"#64748b", border:"#e2e8f0", text:"#0f172a" };
+  const sorted = [...reports].sort((a,b)=>b.date.localeCompare(a.date));
+  const [csvData, setCsvData] = useState(null);
+ 
+  const [selected, setSelected] = useState(null);
+  if (selected) return <ReportDetailScreen report={selected} onBack={()=>setSelected(null)}/>;
+  return (
+    <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:"#f0fdfa",minHeight:"100vh",color:C.text}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap'); *{box-sizing:border-box}`}</style>
+      <div style={{backgroundColor:C.teal,padding:"18px 16px",color:"white",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,0.18)",border:"none",borderRadius:10,padding:"8px 12px",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
+          <div>
+            <div style={{fontWeight:900,fontSize:17}}>📋 Report History</div>
+            <div style={{fontSize:11,opacity:0.75,fontWeight:700}}>{reports.length} report{reports.length!==1?"s":""} saved</div>
+          </div>
+          <button onClick={()=>setCsvData(buildCSV(reports))} style={{marginLeft:"auto",backgroundColor:C.pink,border:"none",borderRadius:10,padding:"10px 16px",color:"white",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export CSV</button>
+        </div>
+      </div>
+ 
+      {csvData&&<CSVModal csv={csvData} onClose={()=>setCsvData(null)}/>}
+      <div style={{padding:"14px 14px 40px"}}>
+        {reports.length===0 ? (
+          <div style={{textAlign:"center",padding:"60px 20px",color:C.muted}}>
+            <div style={{fontSize:48,marginBottom:12}}>📭</div>
+            <div style={{fontWeight:800,fontSize:17}}>No reports yet</div>
+            <div style={{fontSize:14,marginTop:6}}>Submitted reports will appear here.</div>
+          </div>
+        ) : sorted.map((r,i)=>{
+          const wAvg = (Object.values(r.wheel).reduce((a,b)=>a+b,0)/10).toFixed(1);
+          return (
+            <div key={i} style={{backgroundColor:"white",borderRadius:16,padding:"16px",marginBottom:12,boxShadow:"0 1px 8px rgba(0,0,0,0.06)",cursor:"pointer",transition:"box-shadow 0.15s"}}
+              onClick={()=>setSelected(r)}
+              onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 18px rgba(0,0,0,0.12)"}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow="0 1px 8px rgba(0,0,0,0.06)"}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:900,fontSize:17}}>
+                    {new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}
+                  </div>
+                  <div style={{fontSize:13,color:C.muted,marginTop:2}}>
+                    {r.staff.map(s=>s.hours>0?`${s.name} (${s.hours}h)`:s.name).join(", ")||"No staff recorded"}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8,flexShrink:0,marginLeft:10}}>
+                  <div style={{backgroundColor:"#f0fdf4",borderRadius:10,padding:"6px 10px",textAlign:"center"}}>
+                    <div style={{fontWeight:900,fontSize:18,color:"#16a34a"}}>{wAvg}</div>
+                    <div style={{fontSize:9,color:C.muted,fontWeight:700}}>WHEEL</div>
+                  </div>
+                  <div style={{backgroundColor:"#f0fdfa",borderRadius:10,padding:"6px 10px",textAlign:"center"}}>
+                    <div style={{fontWeight:900,fontSize:18,color:C.teal}}>{r.busyness.score}</div>
+                    <div style={{fontSize:9,color:C.muted,fontWeight:700}}>BUSY</div>
+                  </div>
+                  <div style={{backgroundColor:"#fdf4ff",borderRadius:10,padding:"6px 10px",textAlign:"center"}}>
+                    <div style={{fontWeight:900,fontSize:18,color:"#9333ea"}}>{r.totalHours}</div>
+                    <div style={{fontSize:9,color:C.muted,fontWeight:700}}>HOURS</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {OPS_FIELDS.map(([key,label,emoji])=>(
+                  <span key={key} style={{fontSize:12,backgroundColor:"#f8fafc",borderRadius:8,padding:"4px 8px",fontWeight:700,color:C.muted}}>
+                    {emoji} {r.operations[key]??0}
+                  </span>
+                ))}
+              </div>
+              {r.notes&&<div style={{marginTop:10,fontSize:13,color:C.muted,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:8}}>"{r.notes}"</div>}
+              <div style={{marginTop:12,borderTop:`1px solid ${C.border}`,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <button onClick={e=>{e.stopPropagation();onEdit(r);}} style={{backgroundColor:"#f0fdfa",border:`1.5px solid #14b8a6`,borderRadius:8,padding:"7px 14px",color:"#0f766e",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️ Edit</button>
+                <span style={{fontSize:12,fontWeight:800,color:C.pink,display:"flex",alignItems:"center",gap:4}}>📄 Tap to view report →</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+ 
+// ── Main App ──────────────────────────────────────────────────────
+function App() {
+  const today = new Date().toISOString().split("T")[0];
+  const [view, setView] = useState("form");
+  const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [reports, setReports] = useState([]);
+  const [lastReport, setLastReport] = useState(null);
+  const [editingKey, setEditingKey] = useState(null);
+  const [loadingReports, setLoadingReports] = useState(true);
+ 
+  const [date, setDate] = useState(today);
+  const [staff, setStaff] = useState([{name:"",mood:1,hours:""}]);
+  const [wheel, setWheel] = useState(Object.fromEntries(WHEEL_CATS.map(c=>[c.key,7])));
+  const [busyness, setBusyness] = useState(5);
+  const [ops, setOps] = useState(EMPTY_OPS);
+  const [notes, setNotes] = useState("");
+  const [validationError, setValidationError] = useState("");
+ 
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const result = await _storage.list("report:");
+        if (result?.keys?.length) {
+          const loaded = await Promise.all(result.keys.map(async key=>{
+            try { const r=await _storage.get(key); return r?{...JSON.parse(r.value),_storageKey:key}:null; } catch{return null;}
+          }));
+          setReports(loaded.filter(Boolean));
+        }
+      } catch(e){console.error("Load error",e);}
+      finally{setLoadingReports(false);}
+    })();
+  },[]);
+ 
+  const totalHours = useMemo(()=>staff.reduce((s,m)=>s+(parseFloat(m.hours)||0),0),[staff]);
+  const addStaff = ()=>{setStaff(p=>[...p,{name:"",mood:1,hours:""}]);setValidationError("");};
+  const removeStaff = idx=>setStaff(p=>p.filter((_,i)=>i!==idx));
+  const updateStaff = (idx,field,val)=>{setStaff(p=>p.map((s,i)=>i===idx?{...s,[field]:val}:s));setValidationError("");};
+ 
+  const validate = (s) => {
+    if (s === 1) {
+      const named = staff.filter(m => m.name.trim());
+      if (named.length === 0) return "Please add at least one team member.";
+      for (const m of named) {
+        if (m.hours === "" || m.hours === null) return `Please enter hours for ${m.name.trim()}.`;
+      }
+    }
+    if (s === 3) {
+      for (const [key, label] of OPS_FIELDS) {
+        if (ops[key] === "") return `Please enter a number for "${label}" (use 0 if none).`;
+      }
+    }
+    return "";
+  };
+ 
+  const handleNext = () => {
+    const err = validate(step);
+    if (err) { setValidationError(err); return; }
+    setValidationError("");
+    setStep(s => s + 1);
+  };
+ 
+  const handleSubmit = async()=>{
+    const err = validate(3);
+    if (err) { setValidationError(err); return; }
+    setValidationError("");
+    setSubmitting(true);
+    const report = {
+      date,
+      staff: staff.filter(s=>s.name.trim()).map(s=>({name:s.name.trim(),mood:MOOD_LABELS[s.mood],hours:parseFloat(s.hours)||0})),
+      totalHours,
+      wheel: Object.fromEntries(WHEEL_CATS.map(c=>[c.key,wheel[c.key]])),
+      busyness:{score:busyness,label:BUSYNESS_LABELS[busyness]},
+      operations: Object.fromEntries(OPS_FIELDS.map(([key])=>[key,parseInt(ops[key])||0])),
+      notes,
+      submittedAt: new Date().toISOString(),
+    };
+    try {
+      const key = editingKey || `report:${date}-${Date.now()}`;
+      const reportWithKey = {...report, _storageKey: key};
+      await _storage.set(key, JSON.stringify(reportWithKey));
+      setReports(prev => editingKey
+        ? prev.map(r => r._storageKey === editingKey ? reportWithKey : r)
+        : [...prev, reportWithKey]
+      );
+      setLastReport(reportWithKey);
+      setEditingKey(null);
+      setSubmitted(true);
+    } catch(e){alert("Save failed: "+e.message);}
+    finally{setSubmitting(false);}
+  };
+ 
+  const reset = ()=>{
+    setSubmitted(false); setStep(1); setDate(today); setLastReport(null); setEditingKey(null);
+    setStaff([{name:"",mood:1,hours:""}]);
+    setWheel(Object.fromEntries(WHEEL_CATS.map(c=>[c.key,7])));
+    setBusyness(5); setOps(EMPTY_OPS); setNotes("");
+  };
+ 
+  const startEdit = (r) => {
+    setEditingKey(r._storageKey);
+    setDate(r.date);
+    setStaff(r.staff.map(s=>({name:s.name,mood:MOOD_LABELS.indexOf(s.mood),hours:String(s.hours)})));
+    setWheel(r.wheel);
+    setBusyness(r.busyness.score);
+    setOps(Object.fromEntries(OPS_FIELDS.map(([key])=>[key,String(r.operations[key]??0)])));
+    setNotes(r.notes||"");
+    setStep(1);
+    setSubmitted(false);
+    setValidationError("");
+    setView("form");
+  };
+ 
+  if (view==="history") return <HistoryScreen reports={reports} onBack={()=>setView("form")} onEdit={startEdit}/>;
+  if (view==="detail" && lastReport) return <ReportDetailScreen report={lastReport} onBack={()=>{setView("form");setSubmitted(true);}}/>;
+ 
+  const C={teal:"#0f766e",tealMid:"#14b8a6",tealLight:"#ccfbf1",pink:"#E3A825",bg:"#f0fdfa",card:"#ffffff",text:"#0f172a",muted:"#64748b",border:"#e2e8f0"};
+  const card={backgroundColor:C.card,borderRadius:16,padding:"18px 16px",boxShadow:"0 1px 8px rgba(0,0,0,0.06),0 0 0 1px rgba(0,0,0,0.03)",marginBottom:12};
+  const inp={border:`1.5px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:16,fontFamily:"inherit",width:"100%",outline:"none",boxSizing:"border-box",backgroundColor:"white",color:C.text};
+  const pct=step===1?33:step===2?66:100;
+ 
+  if (submitted) return (
+    <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap'); *{box-sizing:border-box}`}</style>
+      <div style={{textAlign:"center",maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:72,marginBottom:12}}>🐾</div>
+        <h1 style={{color:C.teal,fontWeight:900,fontSize:26,margin:"0 0 8px"}}>Report Saved!</h1>
+        <p style={{color:C.muted,fontSize:15,marginBottom:24}}>
+          {new Date(date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long"})}'s report is saved. {reports.length} report{reports.length!==1?"s":""} in history.
+        </p>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {lastReport&&<button onClick={()=>setView("detail")} style={{backgroundColor:C.pink,color:"white",border:"none",borderRadius:12,padding:14,fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 Screenshot Format for Google Chat</button>}
+          <button onClick={reset} style={{backgroundColor:C.teal,color:"white",border:"none",borderRadius:12,padding:14,fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Submit Another Report</button>
+          <button onClick={()=>setView("history")} style={{backgroundColor:"white",color:C.teal,border:`2px solid ${C.teal}`,borderRadius:12,padding:14,fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 View History & Export CSV</button>
+        </div>
+      </div>
+    </div>
+  );
+ 
+  return (
+    <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:C.bg,minHeight:"100vh",color:C.text}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+        *{box-sizing:border-box}
+        input[type=range]{-webkit-appearance:none;width:100%;height:8px;border-radius:4px;background:#e2e8f0;outline:none;cursor:pointer}
+        input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#14b8a6;cursor:pointer;box-shadow:0 2px 8px rgba(20,184,166,0.5)}
+        input[type=number]{-moz-appearance:textfield}
+        input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+        button{touch-action:manipulation}
+      `}</style>
+ 
+      {/* HEADER */}
+      <div style={{backgroundColor:C.teal,padding:"18px 16px 14px",color:"white",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{fontSize:26}}>🐾</div>
+          <div>
+            <div style={{fontWeight:900,fontSize:17,letterSpacing:"0.5px"}}>PADDINGTON PUPS</div>
+            <div style={{fontSize:11,opacity:0.75,fontWeight:700,letterSpacing:"1px"}}>{editingKey?"✏️ EDITING REPORT":"TEAM WEATHER REPORT"}</div>
+          </div>
+          <button onClick={()=>setView("history")} style={{marginLeft:"auto",backgroundColor:"rgba(255,255,255,0.18)",border:"none",borderRadius:10,padding:"7px 12px",color:"white",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            📋 {loadingReports?"...":reports.length}
+          </button>
+        </div>
+        <div style={{backgroundColor:"rgba(255,255,255,0.2)",borderRadius:99,height:6,overflow:"hidden"}}>
+          <div style={{backgroundColor:C.pink,height:"100%",width:`${pct}%`,borderRadius:99,transition:"width 0.4s ease"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:7,fontSize:11,fontWeight:700}}>
+          {["👥 TEAM","🎡 WHEEL","📊 OPS"].map((l,i)=><span key={i} style={{opacity:step>=i+1?1:0.45}}>{l}</span>)}
+        </div>
+      </div>
+ 
+      <div style={{padding:"14px 14px 100px"}}>
+ 
+        {/* STEP 1 */}
+        {step===1&&(
+          <div>
+            <div style={card}>
+              <label style={{fontWeight:800,fontSize:13,color:C.muted,display:"block",marginBottom:8,letterSpacing:"0.5px"}}>📅 DATE</label>
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inp}/>
+            </div>
+            <div style={card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontWeight:900,fontSize:17}}>👥 Team Today</div>
+                <div style={{backgroundColor:C.tealLight,color:C.teal,borderRadius:20,padding:"5px 13px",fontWeight:800,fontSize:14}}>{totalHours}h total</div>
+              </div>
+              {staff.map((s,i)=>(
+                <div key={i} style={{padding:"12px 0",borderBottom:i<staff.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                    <input type="text" placeholder={`Team member ${i+1}`} value={s.name} onChange={e=>updateStaff(i,"name",e.target.value)} style={{...inp,flex:1,fontWeight:700}}/>
+                    {staff.length>1&&<button onClick={()=>removeStaff(i)} style={{width:36,height:36,flexShrink:0,borderRadius:10,border:"none",backgroundColor:"#fef2f2",color:"#ef4444",fontSize:16,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✕</button>}
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <div style={{display:"flex",gap:4,flex:1}}>
+                      {MOODS.map((m,mi)=>(
+                        <button key={mi} onClick={()=>updateStaff(i,"mood",mi)} style={{flex:1,padding:"7px 0",borderRadius:8,border:"2px solid",borderColor:s.mood===mi?C.tealMid:C.border,backgroundColor:s.mood===mi?C.tealLight:"white",fontSize:17,cursor:"pointer",fontFamily:"inherit",transition:"all 0.12s"}}>{m}</button>
+                      ))}
+                    </div>
+                    <input type="number" min="0" max="24" step="0.5" placeholder="hrs" value={s.hours} onChange={e=>updateStaff(i,"hours",e.target.value)} onWheel={e=>e.target.blur()} style={{...inp,width:72,textAlign:"center",padding:"10px 6px",fontSize:16,borderColor:s.name.trim()&&s.hours===""?"#fca5a5":C.border}}/>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addStaff} style={{width:"100%",marginTop:12,padding:12,borderRadius:12,border:`2px dashed ${C.tealMid}`,backgroundColor:C.tealLight,color:C.teal,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>+ Add Person</button>
+            </div>
+          </div>
+        )}
+ 
+        {/* STEP 2 */}
+        {step===2&&(
+          <div>
+            <div style={{...card,textAlign:"center"}}>
+              <div style={{fontWeight:900,fontSize:17,marginBottom:14}}>🎡 Live Preview</div>
+              <RadarChart scores={wheel}/>
+              <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center"}}>
+                {WHEEL_CATS.map(cat=>(
+                  <span key={cat.key} style={{fontSize:11,backgroundColor:"#f1f5f9",borderRadius:6,padding:"3px 7px",color:C.muted,fontWeight:700}}>{cat.emoji} {wheel[cat.key]}</span>
+                ))}
+              </div>
+            </div>
+            {WHEEL_CATS.map(cat=>(
+              <div key={cat.key} style={card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div>
+                    <div style={{fontWeight:900,fontSize:16}}>{cat.emoji} {cat.label}</div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>{cat.desc}</div>
+                  </div>
+                  <div style={{backgroundColor:C.teal,color:"white",borderRadius:12,padding:"6px 12px",minWidth:56,textAlign:"center",flexShrink:0,marginLeft:12}}>
+                    <div style={{fontWeight:900,fontSize:20,lineHeight:1}}>{wheel[cat.key]}</div>
+                    <div style={{fontSize:9,fontWeight:700,opacity:0.8,marginTop:2}}>{SCORE_LABELS[wheel[cat.key]]}</div>
+                  </div>
+                </div>
+                <ScorePicker value={wheel[cat.key]} onChange={v=>setWheel(p=>({...p,[cat.key]:v}))}/>
+              </div>
+            ))}
+          </div>
+        )}
+ 
+        {/* STEP 3 */}
+        {step===3&&(
+          <div>
+            <div style={card}>
+              <div style={{fontWeight:900,fontSize:17,marginBottom:4}}>📈 Level Of Busy</div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,fontWeight:700,marginBottom:10}}>
+                <span>Very Quiet &amp; Slow</span><span>Chaotic Madness</span>
+              </div>
+              <input type="range" min="1" max="10" value={busyness} onChange={e=>setBusyness(parseInt(e.target.value))} style={{width:"100%"}}/>
+              <div style={{textAlign:"center",marginTop:10}}>
+                <span style={{fontWeight:900,fontSize:28,color:C.teal}}>{busyness}</span>
+                <span style={{fontSize:16,fontWeight:700,color:C.muted,marginLeft:8}}>— {BUSYNESS_LABELS[busyness]}</span>
+              </div>
+            </div>
+            <div style={card}>
+              <div style={{fontWeight:900,fontSize:17,marginBottom:16}}>🐶 Numbers</div>
+              {OPS_FIELDS.map(([key,label,emoji],idx)=>(
+                <div key={key} style={{display:"flex",alignItems:"center",gap:12,paddingBottom:12,marginBottom:12,borderBottom:idx<OPS_FIELDS.length-1?`1px solid ${C.border}`:"none"}}>
+                  <span style={{fontSize:22,flexShrink:0,width:30,textAlign:"center"}}>{emoji}</span>
+                  <div style={{flex:1,fontWeight:700,fontSize:14}}>{label}</div>
+                  <input type="number" min="0" value={ops[key]} onChange={e=>setOps(p=>({...p,[key]:e.target.value}))} style={{...inp,width:72,textAlign:"center",padding:"10px 6px"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={card}>
+              <label style={{fontWeight:900,fontSize:16,display:"block",marginBottom:10}}>📝 Notes</label>
+              <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Please write detailed notes about the day" rows={4} style={{...inp,resize:"vertical"}}/>
+            </div>
+          </div>
+        )}
+      </div>
+ 
+      {/* FOOTER */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,backgroundColor:"white",borderTop:`1px solid ${C.border}`,padding:"10px 14px",boxShadow:"0 -4px 16px rgba(0,0,0,0.06)"}}>
+        {validationError&&(
+          <div style={{backgroundColor:"#fef2f2",border:"1px solid #fca5a5",borderRadius:10,padding:"9px 14px",marginBottom:8,fontSize:13,fontWeight:700,color:"#dc2626",display:"flex",alignItems:"center",gap:6}}>
+            ⚠️ {validationError}
+          </div>
+        )}
+        <div style={{display:"flex",gap:10}}>
+        {step>1&&<button onClick={()=>{setStep(s=>s-1);setValidationError("");}} style={{flex:1,padding:14,borderRadius:12,border:`2px solid ${C.border}`,backgroundColor:"white",color:C.text,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>}
+        {step<3
+          ?<button onClick={handleNext} style={{flex:2,padding:14,borderRadius:12,border:"none",backgroundColor:C.teal,color:"white",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Next →</button>
+          :<button onClick={handleSubmit} disabled={submitting} style={{flex:2,padding:14,borderRadius:12,border:"none",backgroundColor:submitting?"#94a3b8":C.pink,color:"white",fontSize:15,fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"inherit",transition:"background-color 0.2s"}}>
+            {submitting?"⏳ Saving...":(editingKey?"💾 Save Changes":"✅ Submit Report")}
+          </button>
+        }
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+ 
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
