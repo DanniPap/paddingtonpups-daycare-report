@@ -47,12 +47,9 @@ const _storage = {
     this._cache = null;
     const report = JSON.parse(value);
     const payload = encodeURIComponent(JSON.stringify({ key, report }));
-    await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = img.onerror = resolve;
-      img.src = SCRIPT_URL + '?action=save&data=' + payload;
-      setTimeout(resolve, 5000);
-    });
+    const url = SCRIPT_URL + '?action=save&data=' + payload;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Sheet save failed: ' + res.status);
     return { key, value };
   }
 };
