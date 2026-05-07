@@ -104,27 +104,16 @@ function buildCSV(reports) {
   return [headers.map(esc), ...rows].map(r=>r.join(",")).join("\n");
 }
 
-function CSVModal({ csv, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(csv).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
-  };
-  return (
-    <div style={{position:"fixed",inset:0,backgroundColor:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{backgroundColor:"white",borderRadius:16,padding:20,width:"100%",maxWidth:560,maxHeight:"80vh",display:"flex",flexDirection:"column",gap:12,fontFamily:"'Nunito','Segoe UI',sans-serif"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontWeight:900,fontSize:17}}>📊 Export CSV Data</div>
-          <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:32,height:32,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
-        </div>
-        <p style={{fontSize:13,color:"#64748b",margin:0}}>Copy everything below, then paste into Excel or Google Sheets (File → Import, or just paste into cell A1).</p>
-        <textarea readOnly value={csv} onClick={e=>e.target.select()}
-          style={{flex:1,minHeight:220,fontFamily:"monospace",fontSize:11,border:"1.5px solid #e2e8f0",borderRadius:10,padding:10,resize:"none",color:"#0f172a",backgroundColor:"#f8fafc"}}/>
-        <button onClick={copy} style={{padding:"13px",borderRadius:12,border:"none",backgroundColor:copied?"#22c55e":"#0f766e",color:"white",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit",transition:"background 0.2s"}}>
-          {copied?"✅ Copied!":"📋 Copy All"}
-        </button>
-      </div>
-    </div>
-  );
+function downloadCSV(reports) {
+  const blob = new Blob([buildCSV(reports)], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "paddington-pups-weather-reports.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Radar Chart ──────────────────────────────────────────────────
@@ -479,8 +468,6 @@ function ReportDetailScreen({ report: r, onBack }) {
 function HistoryScreen({ reports, onBack, onEdit }) {
   const C = { teal:"#0f766e", pink:"#E3A825", muted:"#64748b", border:"#e2e8f0", text:"#0f172a" };
   const sorted = [...reports].sort((a,b)=>b.date.localeCompare(a.date));
-  const [csvData, setCsvData] = useState(null);
-
   const [selected, setSelected] = useState(null);
   if (selected) return <ReportDetailScreen report={selected} onBack={()=>setSelected(null)}/>;
   return (
@@ -493,11 +480,10 @@ function HistoryScreen({ reports, onBack, onEdit }) {
             <div style={{fontWeight:900,fontSize:17}}>📋 Report History</div>
             <div style={{fontSize:11,opacity:0.75,fontWeight:700}}>{reports.length} report{reports.length!==1?"s":""} saved</div>
           </div>
-          <button onClick={()=>setCsvData(buildCSV(reports))} style={{marginLeft:"auto",backgroundColor:C.pink,border:"none",borderRadius:10,padding:"10px 16px",color:"white",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export CSV</button>
+          <button onClick={()=>downloadCSV(reports)} style={{marginLeft:"auto",backgroundColor:C.pink,border:"none",borderRadius:10,padding:"10px 16px",color:"white",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export CSV</button>
         </div>
       </div>
 
-      {csvData&&<CSVModal csv={csvData} onClose={()=>setCsvData(null)}/>}
       <div style={{padding:"14px 14px 40px"}}>
         {reports.length===0 ? (
           <div style={{textAlign:"center",padding:"60px 20px",color:C.muted}}>
@@ -849,7 +835,5 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
-</body>
-</html>
 </body>
 </html>
