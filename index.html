@@ -12,13 +12,13 @@
   <div id="root"></div>
   <script type="text/babel">
 const { useState, useMemo, useEffect } = React;
-
+ 
 // ── Google Sheets storage ─────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz6fDeku6udgbZDcc_T3gWEZs5PCtGs5l1NJ5p6xSt7vHEufHuRM1BZjpKUSq6UeU-e/exec';
-
+ 
 const _storage = {
   _cache: null,
-
+ 
   async _fetchAll() {
     if (this._cache) return this._cache;
     try {
@@ -30,19 +30,19 @@ const _storage = {
     }
     return this._cache;
   },
-
+ 
   async list(prefix) {
     const reports = await this._fetchAll();
     const keys = reports.map(r => r._storageKey).filter(k => k && k.startsWith(prefix));
     return { keys };
   },
-
+ 
   async get(key) {
     const reports = await this._fetchAll();
     const report = reports.find(r => r._storageKey === key);
     return report ? { value: JSON.stringify(report) } : null;
   },
-
+ 
   async set(key, value) {
     this._cache = null;
     const report = JSON.parse(value);
@@ -53,8 +53,37 @@ const _storage = {
     return { key, value };
   }
 };
-
-
+ 
+ 
+// Safe date parser — handles strings, Date objects, and Google Sheets date formats
+function safeDate(d) {
+  if (!d) return null;
+  if (typeof d === 'string') {
+    // already "YYYY-MM-DD"
+    const dt = new Date(d + 'T00:00:00');
+    return isNaN(dt) ? new Date(d) : dt;
+  }
+  if (d instanceof Date) return d;
+  // Google Sheets may return a serial number
+  if (typeof d === 'number') {
+    const dt = new Date((d - 25569) * 86400 * 1000);
+    return dt;
+  }
+  return new Date(String(d));
+}
+ 
+function safeDateStr(d) {
+  const dt = safeDate(d);
+  if (!dt || isNaN(dt)) return 'Unknown Date';
+  return dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
+}
+ 
+function safeDateStrLong(d) {
+  const dt = safeDate(d);
+  if (!dt || isNaN(dt)) return 'Unknown Date';
+  return dt.toLocaleDateString('en-AU', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+}
+ 
 const WHEEL_CATS = [
   { key: "customerSatisfaction", label: "Customer Satisfaction", desc: "Complaints & happy customers", emoji: "⭐" },
   { key: "staffMood", label: "Team Mood", desc: "Happy & inclusive team", emoji: "😊" },
@@ -67,7 +96,7 @@ const WHEEL_CATS = [
   { key: "dogBehaviour", label: "Dog Behaviour", desc: "Dog energy levels, mood & incidents", emoji: "🐕" },
   { key: "barking", label: "Barking", desc: "Noise levels", emoji: "🔊" },
 ];
-
+ 
 const SCORE_LABELS = { 2:"2", 3:"Bad", 4:"Poor", 5:"Okay", 6:"Good", 7:"Great", 8:"Excellent", 9:"Outstanding", 10:"Perfection" };
 const MOODS = ["😄","😊","😐","😕","😤"];
 const MOOD_LABELS = ["Great","Good","Okay","Down","Stressed"];
@@ -83,7 +112,7 @@ const OPS_FIELDS = [
   ["walkIns","Walk-ins","🚶"],
   ["newClientPacks","New Client Packs","📦"],
 ];
-
+ 
 function buildCSV(reports) {
   const sorted = [...reports].sort((a,b) => a.date.localeCompare(b.date));
   const headers = ["Date","Total Hours","Team Names","Team Moods","Team Hours","Level Of Busy Score","Level Of Busy Label",...WHEEL_CATS.map(c=>c.label),...OPS_FIELDS.map(([,label])=>label),"Notes"];
@@ -100,7 +129,7 @@ function buildCSV(reports) {
   ].map(esc));
   return [headers.map(esc), ...rows].map(r=>r.join(",")).join("\n");
 }
-
+ 
 function downloadCSV(reports) {
   const blob = new Blob([buildCSV(reports)], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -112,7 +141,7 @@ function downloadCSV(reports) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-
+ 
 // ── Radar Chart ──────────────────────────────────────────────────
 function RadarChart({ scores }) {
   const cx=130, cy=130, maxR=90, n=WHEEL_CATS.length;
@@ -134,7 +163,7 @@ function RadarChart({ scores }) {
     </svg>
   );
 }
-
+ 
 // ── Score Picker ──────────────────────────────────────────────────
 function ScorePicker({ value, onChange }) {
   const col = s => s<=3?{border:"#fca5a5",active:"#ef4444"}:s<=5?{border:"#fcd34d",active:"#f59e0b"}:s<=7?{border:"#86efac",active:"#22c55e"}:{border:"#5eead4",active:"#14b8a6"};
@@ -147,8 +176,8 @@ function ScorePicker({ value, onChange }) {
     </div>
   );
 }
-
-
+ 
+ 
 // ── Generate Printable Report HTML ───────────────────────────────
 function generateReportHTML(r) {
   const CATS = [
@@ -166,7 +195,7 @@ function generateReportHTML(r) {
   const SLABELS = {2:"2",3:"Bad",4:"Poor",5:"Okay",6:"Good",7:"Great",8:"Excellent",9:"Outstanding",10:"Perfection"};
   const wAvg = (Object.values(r.wheel).reduce((a,b)=>a+b,0)/10).toFixed(1);
   const dateStr = new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-
+ 
   // Radar SVG
   const cx=160,cy=160,maxR=120,n=10;
   const angle = i=>(i/n)*2*Math.PI-Math.PI/2;
@@ -180,10 +209,10 @@ function generateReportHTML(r) {
   const emojiLabels = CATS.map((cat,i)=>{const a=angle(i),lr=maxR+22;return `<text x="${cx+lr*Math.cos(a)}" y="${cy+lr*Math.sin(a)}" text-anchor="middle" dominant-baseline="middle" font-size="16">${cat.emoji}</text>`;}).join("");
   const scoreLabels = CATS.map((cat,i)=>{const a=angle(i),lr=maxR+38;return `<text x="${cx+lr*Math.cos(a)}" y="${cy+lr*Math.sin(a)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#64748b" font-weight="bold">${r.wheel[cat.key]}</text>`;}).join("");
   const radarSVG = `<svg viewBox="0 0 320 320" width="280" height="280" xmlns="http://www.w3.org/2000/svg">${gridPolys}${spokeLines}${dataPath}${dots}${emojiLabels}${scoreLabels}<circle cx="${cx}" cy="${cy}" r="24" fill="#0f766e"/><text x="${cx}" y="${cy-4}" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="900" fill="white">${wAvg}</text><text x="${cx}" y="${cy+11}" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(255,255,255,0.8)">AVG</text></svg>`;
-
+ 
   const scoreColor = s=>s<=3?"#ef4444":s<=5?"#f59e0b":s<=7?"#22c55e":"#14b8a6";
   const scoreBg = s=>s<=3?"#fef2f2":s<=5?"#fffbeb":s<=7?"#f0fdf4":"#f0fdfa";
-
+ 
   const wheelRows = CATS.map(cat=>`
     <tr>
       <td style="padding:7px 10px;font-weight:700;font-size:13px;">${cat.emoji} ${cat.label}</td>
@@ -192,14 +221,14 @@ function generateReportHTML(r) {
       </td>
       <td style="padding:7px 10px;font-size:12px;color:#64748b;font-weight:600;">${SLABELS[r.wheel[cat.key]]||""}</td>
     </tr>`).join("");
-
+ 
   const staffRows = r.staff.map(s=>`
     <tr>
       <td style="padding:6px 10px;font-weight:700;font-size:13px;">${s.name}</td>
       <td style="padding:6px 10px;font-size:13px;">${s.mood}</td>
       <td style="padding:6px 10px;font-size:13px;text-align:center;font-weight:700;">${s.hours}h</td>
     </tr>`).join("");
-
+ 
   const opsItems = [
     ["Dogs in Daycare","🐕",r.operations.daycareDogs],
     ["Daycare Staff","👤",r.operations.daycareStaff],
@@ -214,7 +243,7 @@ function generateReportHTML(r) {
       <span style="font-size:13px;font-weight:600;">${emoji} ${label}</span>
       <span style="font-size:15px;font-weight:900;color:#0f766e;">${val??0}</span>
     </div>`).join("");
-
+ 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -264,13 +293,13 @@ function generateReportHTML(r) {
       <div class="sub">Daily Operations Report</div>
     </div>
   </div>
-
+ 
   <div class="stat-row">
     <div class="stat" style="background:#f0fdf4;"><div class="val" style="color:#16a34a">${wAvg}</div><div class="lbl" style="color:#16a34a">WHEEL AVG</div></div>
     <div class="stat" style="background:#f0fdfa;"><div class="val" style="color:#0f766e">${r.busyness.score}</div><div class="lbl" style="color:#0f766e">LEVEL OF BUSY — ${r.busyness.label}</div></div>
     <div class="stat" style="background:#fdf4ff;"><div class="val" style="color:#9333ea">${r.totalHours}</div><div class="lbl" style="color:#9333ea">TOTAL HOURS</div></div>
   </div>
-
+ 
   <div class="two-col">
     <div>
       <div class="section">
@@ -284,13 +313,13 @@ function generateReportHTML(r) {
           <tbody>${staffRows}</tbody>
         </table>
       </div>
-
+ 
       <div class="section">
         <h2>🐶 Operations</h2>
         ${opsItems}
       </div>
     </div>
-
+ 
     <div>
       <div class="section">
         <h2>🎡 Team Wheel</h2>
@@ -298,22 +327,22 @@ function generateReportHTML(r) {
       </div>
     </div>
   </div>
-
+ 
   <div class="section">
     <h2>📊 Wheel Scores</h2>
     <table>
       <tbody>${wheelRows}</tbody>
     </table>
   </div>
-
+ 
   ${r.notes?`<div class="section"><h2>📝 Notes</h2><div class="notes-box">${r.notes}</div></div>`:""}
-
+ 
   <div class="footer">Paddington Pups · Generated ${new Date(r.submittedAt||Date.now()).toLocaleString("en-AU")}</div>
 </div>
 </body>
 </html>`;
 }
-
+ 
 // ── Report Detail Screen (single screen, photographable) ─────────
 function ReportDetailScreen({ report: r, onBack }) {
   const CATS = [
@@ -330,30 +359,30 @@ function ReportDetailScreen({ report: r, onBack }) {
   ];
   const SLABELS = {2:"2",3:"Bad",4:"Poor",5:"Okay",6:"Good",7:"Great",8:"Excellent",9:"Outstanding",10:"Perfection"};
   const wAvg = (Object.values(r.wheel).reduce((a,b)=>a+b,0)/10).toFixed(1);
-  const dateStr = new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+  const dateStr = safeDateStr(r.date);
   const scoreColor = s=>s<=3?"#ef4444":s<=5?"#f59e0b":s<=7?"#22c55e":"#14b8a6";
   const C = {teal:"#0f766e",pink:"#E3A825",muted:"#64748b",border:"#e8edf2"};
-
+ 
   // Mini radar
   const cx=90,cy=90,maxR=68,n=10;
   const ang = i=>(i/n)*2*Math.PI-Math.PI/2;
   const sR = s=>Math.max(0,((s-2)/8)*maxR);
   const gPts = lv=>CATS.map((_,i)=>{const a=ang(i),r2=sR(lv);return `${cx+r2*Math.cos(a)},${cy+r2*Math.sin(a)}`;}).join(" ");
   const dPts = CATS.map((cat,i)=>{const a=ang(i),r2=sR(r.wheel[cat.key]||5);return {x:cx+r2*Math.cos(a),y:cy+r2*Math.sin(a)};});
-
+ 
   return (
     <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:"white",minHeight:"100vh",color:"#0f172a"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap'); *{box-sizing:border-box}`}</style>
-
+ 
       {/* Back bar */}
       <div style={{backgroundColor:C.teal,padding:"8px 12px",display:"flex",alignItems:"center",gap:8,position:"sticky",top:0,zIndex:10}}>
         <button onClick={onBack} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:8,padding:"6px 10px",color:"white",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
         <span style={{color:"white",fontWeight:700,fontSize:11,opacity:0.8}}>Take a screenshot of everything below</span>
       </div>
-
+ 
       {/* ── REPORT CARD ── */}
       <div style={{padding:"10px 10px 16px"}}>
-
+ 
         {/* Header */}
         <div style={{background:C.teal,color:"white",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
@@ -361,11 +390,12 @@ function ReportDetailScreen({ report: r, onBack }) {
           </div>
           <div style={{fontWeight:900,fontSize:13,whiteSpace:"nowrap",marginLeft:8}}>{dateStr}</div>
         </div>
-
+ 
         {/* Stat pills */}
         {/* HOURS — hero stat */}
         <div style={{backgroundColor:"#fdf4ff",borderRadius:10,padding:"10px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
+            <div style={{fontSize:13,fontWeight:900,color:"#9333ea",marginBottom:4}}>{safeDateStrLong(r.date)}</div>
             <div style={{fontSize:10,fontWeight:900,color:"#9333ea",opacity:0.7,letterSpacing:"0.8px",textTransform:"uppercase"}}>⏱️ Total Team Hours</div>
             <div style={{fontWeight:900,fontSize:36,color:"#9333ea",lineHeight:1}}>{r.totalHours}h</div>
           </div>
@@ -387,13 +417,13 @@ function ReportDetailScreen({ report: r, onBack }) {
             </div>
           ))}
         </div>
-
+ 
         {/* Main two-column body */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-
+ 
           {/* LEFT column */}
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-
+ 
             {/* Operations — full height */}
             <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px"}}>
               <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:8}}>🐶 Operations</div>
@@ -417,10 +447,10 @@ function ReportDetailScreen({ report: r, onBack }) {
               </div>
             )}
           </div>
-
+ 
           {/* RIGHT column */}
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-
+ 
             {/* Mini radar */}
             <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
               <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:4}}>🎡 Wheel</div>
@@ -435,7 +465,7 @@ function ReportDetailScreen({ report: r, onBack }) {
                 <text x={cx} y={cy+9} textAnchor="middle" dominantBaseline="middle" fontSize="6" fill="rgba(255,255,255,0.75)">AVG</text>
               </svg>
             </div>
-
+ 
             {/* Wheel scores */}
             <div style={{backgroundColor:"#f8fafc",borderRadius:8,padding:"8px 10px",flex:1}}>
               <div style={{fontSize:9,fontWeight:900,color:"#94a3b8",letterSpacing:"0.8px",textTransform:"uppercase",marginBottom:6}}>📊 Scores</div>
@@ -451,7 +481,7 @@ function ReportDetailScreen({ report: r, onBack }) {
             </div>
           </div>
         </div>
-
+ 
         {/* Footer */}
         <div style={{textAlign:"center",marginTop:8,fontSize:9,color:"#94a3b8",fontWeight:600}}>
           Paddington Pups · {new Date(r.submittedAt||Date.now()).toLocaleString("en-AU",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}
@@ -460,7 +490,7 @@ function ReportDetailScreen({ report: r, onBack }) {
     </div>
   );
 }
-
+ 
 // ── History Screen ────────────────────────────────────────────────
 function HistoryScreen({ reports, onBack, onEdit }) {
   const C = { teal:"#0f766e", pink:"#E3A825", muted:"#64748b", border:"#e2e8f0", text:"#0f172a" };
@@ -480,7 +510,7 @@ function HistoryScreen({ reports, onBack, onEdit }) {
           <button onClick={()=>downloadCSV(reports)} style={{marginLeft:"auto",backgroundColor:C.pink,border:"none",borderRadius:10,padding:"10px 16px",color:"white",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export CSV</button>
         </div>
       </div>
-
+ 
       <div style={{padding:"14px 14px 40px"}}>
         {reports.length===0 ? (
           <div style={{textAlign:"center",padding:"60px 20px",color:C.muted}}>
@@ -498,7 +528,7 @@ function HistoryScreen({ reports, onBack, onEdit }) {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                 <div>
                   <div style={{fontWeight:900,fontSize:17}}>
-                    {new Date(r.date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}
+                    {safeDateStr(r.date)}
                   </div>
                   <div style={{fontSize:13,color:C.muted,marginTop:2}}>
                     {r.staff.map(s=>s.hours>0?`${s.name} (${s.hours}h)`:s.name).join(", ")||"No staff recorded"}
@@ -538,7 +568,7 @@ function HistoryScreen({ reports, onBack, onEdit }) {
     </div>
   );
 }
-
+ 
 // ── Main App ──────────────────────────────────────────────────────
 function App() {
   const today = new Date().toISOString().split("T")[0];
@@ -550,7 +580,7 @@ function App() {
   const [lastReport, setLastReport] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
   const [loadingReports, setLoadingReports] = useState(true);
-
+ 
   const [date, setDate] = useState(today);
   const [staff, setStaff] = useState([{name:"",mood:1,hours:""}]);
   const [wheel, setWheel] = useState(Object.fromEntries(WHEEL_CATS.map(c=>[c.key,7])));
@@ -558,7 +588,7 @@ function App() {
   const [ops, setOps] = useState(EMPTY_OPS);
   const [notes, setNotes] = useState("");
   const [validationError, setValidationError] = useState("");
-
+ 
   useEffect(()=>{
     (async()=>{
       try {
@@ -573,12 +603,12 @@ function App() {
       finally{setLoadingReports(false);}
     })();
   },[]);
-
+ 
   const totalHours = useMemo(()=>staff.reduce((s,m)=>s+(parseFloat(m.hours)||0),0),[staff]);
   const addStaff = ()=>{setStaff(p=>[...p,{name:"",mood:1,hours:""}]);setValidationError("");};
   const removeStaff = idx=>setStaff(p=>p.filter((_,i)=>i!==idx));
   const updateStaff = (idx,field,val)=>{setStaff(p=>p.map((s,i)=>i===idx?{...s,[field]:val}:s));setValidationError("");};
-
+ 
   const validate = (s) => {
     if (s === 1) {
       const named = staff.filter(m => m.name.trim());
@@ -594,14 +624,14 @@ function App() {
     }
     return "";
   };
-
+ 
   const handleNext = () => {
     const err = validate(step);
     if (err) { setValidationError(err); return; }
     setValidationError("");
     setStep(s => s + 1);
   };
-
+ 
   const handleSubmit = async()=>{
     const err = validate(3);
     if (err) { setValidationError(err); return; }
@@ -631,14 +661,14 @@ function App() {
     } catch(e){alert("Save failed: "+e.message);}
     finally{setSubmitting(false);}
   };
-
+ 
   const reset = ()=>{
     setSubmitted(false); setStep(1); setDate(today); setLastReport(null); setEditingKey(null);
     setStaff([{name:"",mood:1,hours:""}]);
     setWheel(Object.fromEntries(WHEEL_CATS.map(c=>[c.key,7])));
     setBusyness(5); setOps(EMPTY_OPS); setNotes("");
   };
-
+ 
   const startEdit = (r) => {
     setEditingKey(r._storageKey);
     setDate(r.date);
@@ -652,15 +682,15 @@ function App() {
     setValidationError("");
     setView("form");
   };
-
+ 
   if (view==="history") return <HistoryScreen reports={reports} onBack={()=>setView("form")} onEdit={startEdit}/>;
   if (view==="detail" && lastReport) return <ReportDetailScreen report={lastReport} onBack={()=>{setView("form");setSubmitted(true);}}/>;
-
+ 
   const C={teal:"#0f766e",tealMid:"#14b8a6",tealLight:"#ccfbf1",pink:"#E3A825",bg:"#f0fdfa",card:"#ffffff",text:"#0f172a",muted:"#64748b",border:"#e2e8f0"};
   const card={backgroundColor:C.card,borderRadius:16,padding:"18px 16px",boxShadow:"0 1px 8px rgba(0,0,0,0.06),0 0 0 1px rgba(0,0,0,0.03)",marginBottom:12};
   const inp={border:`1.5px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:16,fontFamily:"inherit",width:"100%",outline:"none",boxSizing:"border-box",backgroundColor:"white",color:C.text};
   const pct=step===1?33:step===2?66:100;
-
+ 
   if (submitted) return (
     <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap'); *{box-sizing:border-box}`}</style>
@@ -668,7 +698,7 @@ function App() {
         <div style={{fontSize:72,marginBottom:12}}>🐾</div>
         <h1 style={{color:C.teal,fontWeight:900,fontSize:26,margin:"0 0 8px"}}>Report Saved!</h1>
         <p style={{color:C.muted,fontSize:15,marginBottom:24}}>
-          {new Date(date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long"})}'s report is saved. {reports.length} report{reports.length!==1?"s":""} in history.
+          {safeDateStrLong(date)}'s report is saved. {reports.length} report{reports.length!==1?"s":""} in history.
         </p>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lastReport&&<button onClick={()=>setView("detail")} style={{backgroundColor:C.pink,color:"white",border:"none",borderRadius:12,padding:14,fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 Screenshot Format for Google Chat</button>}
@@ -678,7 +708,7 @@ function App() {
       </div>
     </div>
   );
-
+ 
   return (
     <div style={{fontFamily:"'Nunito','Segoe UI',sans-serif",backgroundColor:C.bg,minHeight:"100vh",color:C.text}}>
       <style>{`
@@ -690,7 +720,7 @@ function App() {
         input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
         button{touch-action:manipulation}
       `}</style>
-
+ 
       {/* HEADER */}
       <div style={{backgroundColor:C.teal,padding:"18px 16px 14px",color:"white",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
@@ -710,9 +740,9 @@ function App() {
           {["👥 TEAM","🎡 WHEEL","📊 OPS"].map((l,i)=><span key={i} style={{opacity:step>=i+1?1:0.45}}>{l}</span>)}
         </div>
       </div>
-
+ 
       <div style={{padding:"14px 14px 100px"}}>
-
+ 
         {/* STEP 1 */}
         {step===1&&(
           <div>
@@ -745,7 +775,7 @@ function App() {
             </div>
           </div>
         )}
-
+ 
         {/* STEP 2 */}
         {step===2&&(
           <div>
@@ -775,7 +805,7 @@ function App() {
             ))}
           </div>
         )}
-
+ 
         {/* STEP 3 */}
         {step===3&&(
           <div>
@@ -807,7 +837,7 @@ function App() {
           </div>
         )}
       </div>
-
+ 
       {/* FOOTER */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,backgroundColor:"white",borderTop:`1px solid ${C.border}`,padding:"10px 14px",boxShadow:"0 -4px 16px rgba(0,0,0,0.06)"}}>
         {validationError&&(
@@ -828,8 +858,8 @@ function App() {
     </div>
   );
 }
-
-
+ 
+ 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
